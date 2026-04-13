@@ -28,11 +28,12 @@ void send_thermal_zones(struct mosquitto *const mosq)
         file = fopen(sys_path, "r");
         if (file == NULL)
             continue;
-        int value;
-        fscanf(file, "%d", &value);
+        char value[64];
+        fscanf(file, "%63s", value);
         fclose(file);
 
-        mosquitto_publish(mosq, NULL, type, sizeof(int), (void *)&value, 0, false);
+        mosquitto_publish(mosq, NULL, type, strlen(value), (void *)value, 0, false);
+        printf("Publised: (%s: %s)\n", type, value);
     }
 }
 
