@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.14)
 
+if(NOT LINUX)
+message(FATAL_ERROR ${CMAKE_HOST_SYSTEM_NAME})
+endif()
+
 set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
