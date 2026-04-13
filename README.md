@@ -3,6 +3,8 @@ MQTT system monitoring tool.
 
 A small utility that can be used to monitor any parameters of system software or hardware (Linux-only), sending all data via MQTT.
 
+<img width="1325" height="679" alt="2026-04-13_17-08" src="https://github.com/user-attachments/assets/a9385185-a3ea-4a19-ae0e-a1d2b956e52d" />
+
 ## Features
 
 ### Application
