@@ -1,0 +1,16 @@
+{
+    "broker": {
+        "client_id": "mqttop-001",
+        "address": "127.0.0.1",
+        "port": 1883,
+        "clean_session": false
+    },
+    "modules": ["mod_meminfo.so"],
+    "topics": [
+        {
+            "name": "Memory",
+            "tags": "mod_meminfo.so & (MemFree | MemAvailable | Cached | SwapFree)",
+            "gather_period": 5000
+        }
+    ]
+}

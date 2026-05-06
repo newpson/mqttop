@@ -1,58 +1,28 @@
-#include <errno.h>
-#include <mosquitto.h>
 #include <stddef.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <string.h>
-#include <sys/sysinfo.h>
+#include <stdlib.h>
+#include <glib.h>
+#include "mt_logf.h"
+#include "mt_client.h"
 
-void send_thermal_zones(struct mosquitto *const mosq)
+int main(int argc, const char *args[])
 {
-    char sys_path[128] = "/sys/class/thermal/thermal_zone";
-    const size_t sys_path_i = sizeof("/sys/class/thermal/thermal_zone") - 1; // exclude '\0'
-    for (size_t i = 0; i < SIZE_MAX; ++i) {
-        // read type
-        snprintf(&sys_path[sys_path_i], 128 - sys_path_i, "%zu/type", i);
-        FILE *file = fopen(sys_path, "r");
-        if (file == NULL) {
-            if (errno == ENOENT)
-                break;
-            continue;
-        }
-        char type[64];
-        fscanf(file, "%63s", type);
-        fclose(file);
+    const char *json_config_path = "config.json";
+    if (argc >= 2)
+        json_config_path = args[1];
 
-        // read temp (m°C)
-        snprintf(&sys_path[sys_path_i], 128 - sys_path_i, "%zu/temp", i);
-        file = fopen(sys_path, "r");
-        if (file == NULL)
-            continue;
-        char value[64];
-        fscanf(file, "%63s", value);
-        fclose(file);
-
-        mosquitto_publish(mosq, NULL, type, strlen(value), (void *)value, 0, false);
-        printf("Publised: (%s: %s)\n", type, value);
+    char *json_config;
+    if (!g_file_get_contents(json_config_path, &json_config, NULL, NULL)) {
+        mt_errorf("Error reading config file \"%s\"", json_config_path);
+        if (argc < 2)
+            mt_notef("Usage: %s [config.json]", argc == 0 ? "client" : args[0]);
+        return EXIT_FAILURE;
     }
-}
 
-int main(void)
-{
-    struct sysinfo info;
-    sysinfo(&info);
-    printf("RAM unit (B): %u\n", info.mem_unit);
-    printf("RAM total (B): %lu\n", info.totalram);
-    printf("RAM hight total (B): %lu\n", info.totalhigh);
-    printf("RAM free (B): %lu\n", info.freeram);
-    printf("RAM used (B): %lu\n", info.totalram - info.freeram);
-    printf("CPU num cores: %d\n", get_nprocs());
-
-    mosquitto_lib_init();
-    struct mosquitto *mosq = mosquitto_new("my_mosquitto", false, NULL);
-    mosquitto_connect(mosq, "127.0.0.1", 1883, 1800);
-    send_thermal_zones(mosq);
-    mosquitto_destroy(mosq);
-    mosquitto_lib_cleanup();
+    MT_Client *client = mt_client_new(json_config);
+    if (client != NULL) {
+        mt_client_run(client);
+        mt_client_destroy(client);
+    }
+    g_free(json_config);
     return 0;
 }
