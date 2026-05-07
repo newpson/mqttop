@@ -5,12 +5,17 @@
         "port": 1883,
         "clean_session": false
     },
-    "modules": ["mod_meminfo.so"],
+    "modules": ["mod_meminfo.so", "mod_cpufreq.so"],
     "topics": [
         {
             "name": "Memory",
-            "tags": "mod_meminfo.so & (MemFree | MemAvailable | Cached | SwapFree)",
-            "gather_period": 5000
+            "tags": "MemFree | MemAvailable | Cached | SwapFree",
+            "gather_period": 2500
+        },
+        {
+            "name": "CPU",
+            "tags": "cpu",
+            "gather_period": 2500
         }
     ]
 }

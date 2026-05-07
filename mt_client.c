@@ -1,7 +1,8 @@
 #include "mt_client.h"
-#include "mt_entry.h"
+#include "mt_entrylist.h"
 #include "mt_equation.h"
 #include "mt_logf.h"
+#include "mt_module.h"
 #include "mt_tags.h"
 #include <cjson/cJSON.h>
 #include <dlfcn.h>
@@ -32,74 +33,8 @@ typedef struct {
     MT_Equation *equation;
     double gather_period;
     GTimer *gather_timer;
-    MT_Entry *entry;
+    MT_EntryList *entry_list;
 } MT_Topic;
-
-typedef void *(*MT_Module_InitFunPtr)();
-typedef void (*MT_Module_GatherFunPtr)(MT_Entry *const entry, void *module_data);
-typedef void (*MT_Module_FreeFunPtr)(void *module_data);
-
-// static const char *const MT_ModuleFunction_string[] = {
-//     [MT_ModuleFunction_Init] = "mt_module_init",
-//     [MT_ModuleFunction_Gather] = "mt_module_gather",
-//     [MT_ModuleFunction_Free] = "mt_module_free",
-// };
-
-typedef struct {
-    void *so_handle;
-    void *module_data;
-    const char *name;
-    MT_Module_InitFunPtr init;
-    MT_Module_GatherFunPtr gather;
-    MT_Module_FreeFunPtr free;
-} MT_Module;
-
-void mt_module_unload(MT_Module *const module)
-{
-    if (module == NULL)
-        return;
-    if (module->free != NULL)
-        module->free(module->module_data);
-    if (module->so_handle != NULL)
-        dlclose(module->so_handle);
-    g_free(module);
-}
-
-MT_Module *mt_module_load(const char *const path)
-{
-    MT_Module *module = g_new0(MT_Module, 1);
-
-    module->so_handle = dlopen(path, RTLD_LAZY | RTLD_GLOBAL);
-    if (module->so_handle == NULL) {
-        mt_errorf("Unable to load module \"%s\": %s", path, dlerror());
-        goto err;
-    }
-
-    module->init = (MT_Module_InitFunPtr)dlsym(module->so_handle, "mt_module_init");
-    if (module->init == NULL) {
-        mt_errorf("Unable to load symbol \"%s\": %s", "mt_module_init", dlerror());
-        goto err;
-    }
-
-    module->gather = (MT_Module_GatherFunPtr)dlsym(module->so_handle, "mt_module_gather");
-    if (module->gather == NULL) {
-        mt_errorf("Unable to load symbol \"%s\": %s", "mt_module_gather", dlerror());
-        goto err;
-    }
-
-    module->free = (MT_Module_FreeFunPtr)dlsym(module->so_handle, "mt_module_free");
-    if (module->free == NULL) {
-        mt_errorf("Unable to load symbol \"%s\": %s", "mt_module_free", dlerror());
-        goto err;
-    }
-
-    module->name = path;
-
-    return module;
-err:
-    mt_module_unload(module);
-    return NULL;
-}
 
 typedef enum {
     MT_JSONFieldType_Object,
@@ -215,7 +150,7 @@ static void mt_topic_free(MT_Topic *const topic)
     g_free(topic->name);
     mt_equation_free(topic->equation);
     g_timer_destroy(topic->gather_timer);
-    mt_entry_destroy(topic->entry);
+    mt_entry_list_destroy(topic->entry_list);
     g_free(topic);
 }
 
@@ -241,12 +176,12 @@ static MT_Topic *mt_topic_new(const cJSON *const json_topic, MT_TagStorage *cons
     if (json_gather_period == NULL)
         goto err;
     topic->gather_period = cJSON_GetNumberValue(json_gather_period);
-    if (topic->gather_period < 10.0) {
-        mt_warnf("Gather period is too small: clamped to 1ms");
-        topic->gather_period = 10.0;
+    if (topic->gather_period < 100.0) {
+        mt_warnf("Gather period is too small: clamped to 100ms");
+        topic->gather_period = 100.0;
     }
     topic->gather_timer = g_timer_new();
-    topic->entry = mt_entry_new(tag_storage);
+    topic->entry_list = mt_entry_list_new(tag_storage);
 
     return topic;
 err:
@@ -316,14 +251,14 @@ err_parsing:
     return NULL;
 }
 
-bool mt_client_run(MT_Client *const client)
+void mt_client_run(MT_Client *const client)
 {
     // FIXME: magic constants
     int status = mosquitto_connect(client->mosquitto, client->broker_info.address, client->broker_info.port, 60);
     if (status != MOSQ_ERR_SUCCESS) {
         mt_errorf("Connection error: %s", mosquitto_strerror(status));
         mt_notef("Check if broker is running");
-        return false;
+        return;
     }
 
     for (size_t i = 0; i < client->topics->len; ++i) {
@@ -336,27 +271,31 @@ bool mt_client_run(MT_Client *const client)
         for (size_t topic_i = 0; topic_i < client->topics->len; ++topic_i) {
             const MT_Topic *const topic = g_ptr_array_index(client->topics, topic_i);
             if (g_timer_elapsed(topic->gather_timer, NULL) * 1000.0 >= topic->gather_period) {
-                // FIXME: remove "MT_Entry" entity completely
-                mt_entry_set_equation(topic->entry, topic->equation);
-                mt_entry_json_new(topic->entry);
+                topic->entry_list->topic.equation = topic->equation;
+                cJSON *result_json = cJSON_CreateObject();
                 g_timer_reset(topic->gather_timer);
-                cJSON *json = cJSON_CreateObject();
                 for (size_t module_i = 0; module_i < client->modules->len; ++module_i) {
                     const MT_Module *const module = g_ptr_array_index(client->modules, module_i);
-                    mt_entry_set_module_name(topic->entry, module->name);
-                    module->gather(topic->entry, module->module_data);
-                    cJSON *const entry_json = mt_entry_json_take(topic->entry);
-                    cJSON_AddItemToObject(json, module->name, entry_json);
+                    topic->entry_list->entry.module = module->name;
+                    topic->entry_list->topic.json = cJSON_CreateObject();
+                    mt_tag_set_clear(topic->entry_list->entry.tags);
+                    module->gather(topic->entry_list, module->module_data);
+                    cJSON_AddItemToObject(result_json, module->name, topic->entry_list->topic.json);
                 }
-                char *const final_json = cJSON_Print(json);
-                // printf("%s\n", final_json);
 
-                mosquitto_publish(client->mosquitto, NULL, topic->name, strlen(final_json) + 1, final_json, 1, false);
+                char *const result_json_text = cJSON_PrintUnformatted(result_json);
 
-                cJSON_Delete(json);
-                cJSON_free(final_json);
+                int status = mosquitto_publish(client->mosquitto, NULL, topic->name, strlen(result_json_text) + 1, result_json_text, 1, false);
+                cJSON_Delete(result_json);
+                cJSON_free(result_json_text);
+                if (status != MOSQ_ERR_SUCCESS) {
+                    mt_errorf("Error publishing: %s", mosquitto_strerror(status));
+                    return;
+                }
             }
         }
+        // TODO: subtract gathering time
+        // FIXME: magic constants
         usleep(10000);
     }
 }

@@ -24,9 +24,11 @@ target_sources(mt_tags
     PUBLIC
     mt_tags.h
     mt_equation.h
+    mt_entrylist.h
     PRIVATE
     mt_tags.c
-    mt_equation.c)
+    mt_equation.c
+    mt_entrylist.c)
 target_link_libraries(mt_tags
     PRIVATE
     mt_logf
@@ -39,8 +41,10 @@ add_library(mt_client SHARED)
 target_sources(mt_client
     PUBLIC
     mt_client.h
+    mt_module.h
     PRIVATE
-    mt_client.c)
+    mt_client.c
+    mt_module.c)
 target_link_libraries(mt_client
     PRIVATE
     mt_logf

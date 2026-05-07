@@ -8,7 +8,7 @@ void *mt_module_init()
     return NULL;
 }
 
-void mt_module_gather(MT_Entry *const entry, void *)
+void mt_module_gather(MT_EntryList *const entry, void *)
 {
     FILE *file_meminfo = fopen("/proc/meminfo", "r");
     char line_buffer[128];
@@ -18,7 +18,7 @@ void mt_module_gather(MT_Entry *const entry, void *)
         if (line_iter != NULL) {
             *line_iter = '\0';
             mt_entry_begin(entry, line_buffer);
-            // no additional tags were added
+            mt_entry_push_tag(entry, "proc");
             if (mt_entry_is_suitable(entry)) {
                 ++line_iter;
                 const double value = strtod(line_iter, NULL);
