@@ -1,5 +1,5 @@
 # mqttop
-
+<img width="1428" height="908" alt="output" src="https://github.com/user-attachments/assets/492009d0-c222-43d2-93e3-9571e10d6e6c" />
 MQTT system monitoring tool. A small utility that can be used to monitor any parameters of system software or hardware (Linux-only), sending all data via MQTT.
 
 ## Build & use
